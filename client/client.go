@@ -22,20 +22,20 @@ func main() {
 	go func() {
 		connReader := bufio.NewReader(conn)
 		for {
-			_, err := connReader.ReadString('\n')
+			message, err := connReader.ReadString('\n')
 			if err != nil {
 				fmt.Fprintf(os.Stderr, "Cannot read the message: %v\n", err)
 				return
 			} else {
-				fmt.Println("The message has been read!")
+				fmt.Print(">> " + message)
 			}
 		}
 	}()
 
 	// Loop untuk membaca input pengguna dan mengirimkannya ke server
-	scanner := bufio.NewScanner(os.Stdin)
-	for scanner.Scan() {
-		message := scanner.Text()
+	localReader := bufio.NewScanner(os.Stdin)
+	for localReader.Scan() {
+		message := localReader.Text()
 		if message == "exit" {
 			fmt.Println("Exiting chat...")
 			break
