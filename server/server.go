@@ -9,31 +9,31 @@ import (
 	"sync"
 )
 
+type Client struct {
+	conn     net.Conn
+	username string
+}
+
 var (
-	clients = make(map[net.Conn]string) // Menyimpan semua koneksi client
-	mtx     sync.Mutex                  // Mutex untuk akses aman ke map clients
+	clients = make(map[net.Conn]*Client)
+	mtx     sync.Mutex
 )
 
 func main() {
-	// Membuat server untuk mendengarkan di port 9000
 	ln, err := net.Listen("tcp", ":9090")
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Failed to listen: %v\n", err)
 		os.Exit(1)
-	} else {
-		fmt.Println("Server is listening on port 9090...")
 	}
+	fmt.Println("Server is listening on port 9090...")
 	defer ln.Close()
 
 	for {
-		// Menerima koneksi baru
 		conn, err := ln.Accept()
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Error accepting connection: %v\n", err)
 			continue
 		}
-
-		// Menangani koneksi client dalam goroutine
 		go handleClient(conn)
 	}
 }
@@ -41,33 +41,50 @@ func main() {
 func handleClient(conn net.Conn) {
 	defer conn.Close()
 
-	// Menambahkan client ke daftar
-	mtx.Lock()
-	clients[conn] = conn.RemoteAddr().String()
-	mtx.Unlock()
-
-	fmt.Printf("Client %s connected.\n", conn.RemoteAddr())
+	client := &Client{
+		conn: conn,
+	}
 
 	reader := bufio.NewReader(conn)
-	fmt.Println("Waiting for message...")
+
+	// Membaca username terlebih dahulu
+	message, err := reader.ReadString('\n')
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Failed to read username: %v\n", err)
+		return
+	}
+
+	parts := strings.SplitN(strings.TrimSpace(message), ":", 2)
+	if len(parts) == 2 && parts[0] == "USERNAME" {
+		client.username = parts[1]
+
+		mtx.Lock()
+		clients[conn] = client
+		mtx.Unlock()
+
+		fmt.Printf("Client %s connected as %s\n", conn.RemoteAddr(), client.username)
+		broadcastMessage(conn, fmt.Sprintf("📢 %s has joined the chat!\n", client.username))
+	}
+
 	for {
-		// Membaca pesan dari client
 		message, err := reader.ReadString('\n')
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "Failed to read message: %v\n", err)
+			mtx.Lock()
+			delete(clients, conn)
+			mtx.Unlock()
+			broadcastMessage(conn, fmt.Sprintf("📢 %s has left the chat!\n", client.username))
 			return
-
-		} else {
-			fmt.Println("The message has been received!")
 		}
 
-		// Membersihkan dan mencetak pesan
-		message = strings.TrimSpace(message)
-		fmt.Printf("%s: %s\n", conn.RemoteAddr(), message)
-		fmt.Println("The message has been echoed back!")
+		parts := strings.SplitN(strings.TrimSpace(message), ":", 3)
+		if len(parts) == 3 && parts[0] == "MSG" {
+			username := parts[1]
+			content := parts[2]
 
-		// Menyebarkan pesan ke semua client kecuali pengirim
-		broadcastMessage(conn, message)
+			fmt.Printf("[%s] %s: %s\n", conn.RemoteAddr(), username, content)
+			// Broadcast pesan hanya ke client lain
+			broadcastMessage(conn, fmt.Sprintf("%s: %s\n", username, content))
+		}
 	}
 }
 
@@ -75,9 +92,9 @@ func broadcastMessage(sender net.Conn, message string) {
 	mtx.Lock()
 	defer mtx.Unlock()
 
-	for client := range clients {
-		if client != sender {
-			client.Write([]byte(fmt.Sprintf("%s: %s\n", clients[sender], message)))
+	for conn := range clients {
+		if conn != sender {
+			conn.Write([]byte(message))
 		}
 	}
 }
