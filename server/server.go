@@ -1,6 +1,7 @@
 package main
 
 import (
+	"Chat-App/server/room"
 	"bufio"
 	"fmt"
 	"net"
@@ -12,6 +13,7 @@ import (
 type Client struct {
 	conn     net.Conn
 	username string
+	room     *room.Room
 }
 
 var (
@@ -57,7 +59,7 @@ func handleClient(conn net.Conn) {
 
 		parts := strings.SplitN(strings.TrimSpace(message), ":", 2)
 		if len(parts) == 2 && parts[0] == "USERNAME" {
-			//Cek apakah sudah ada client yang memiliki username tersebut
+			// Cek apakah sudah ada client yang memiliki username tersebut
 			username := parts[1]
 
 			mtx.Lock()
@@ -75,8 +77,8 @@ func handleClient(conn net.Conn) {
 			if isTaken {
 				conn.Write([]byte("Username " + username + " already taken. Please try again.\n"))
 			} else {
-				//Jika username sudah unik
-				client.username = parts[1]
+				// Jika username sudah unik
+				client.username = username
 
 				mtx.Lock()
 				clients[conn] = client
@@ -84,7 +86,6 @@ func handleClient(conn net.Conn) {
 
 				conn.Write([]byte("OK\n"))
 				fmt.Printf("Client %s connected as %s\n", conn.RemoteAddr(), client.username)
-				broadcastMessage(conn, fmt.Sprintf("📢 %s has joined the chat!\n", client.username))
 				break
 			}
 		}
@@ -96,29 +97,61 @@ func handleClient(conn net.Conn) {
 			mtx.Lock()
 			delete(clients, conn)
 			mtx.Unlock()
-			broadcastMessage(conn, fmt.Sprintf("📢 %s has left the chat!\n", client.username))
+			if client.room != nil {
+				client.room.Broadcast(client.conn, fmt.Sprintf("📢 %s has left the room.\n", client.username))
+				client.room.RemoveClient(client.conn)
+			}
 			return
 		}
 
-		parts := strings.SplitN(strings.TrimSpace(message), ":", 3)
-		if len(parts) == 3 && parts[0] == "MSG" {
-			username := parts[1]
-			content := parts[2]
+		parts := strings.SplitN(strings.TrimSpace(message), ":", 2)
 
-			fmt.Printf("[%s] %s: %s\n", conn.RemoteAddr(), username, content)
-			// Broadcast pesan hanya ke client lain
-			broadcastMessage(conn, fmt.Sprintf("%s: %s\n", username, content))
-		}
-	}
-}
+		if len(parts) == 2 && parts[0] == "JOIN" {
+			// Command untuk join ke room
+			roomName := parts[1]
 
-func broadcastMessage(sender net.Conn, message string) {
-	mtx.Lock()
-	defer mtx.Unlock()
+			if client.room != nil {
+				client.room.RemoveClient(client.conn)
+			}
 
-	for conn := range clients {
-		if conn != sender {
-			conn.Write([]byte(message))
+			newRoom := room.GetOrCreateRoom(roomName)
+			newRoom.AddClient(client.conn)
+			client.room = newRoom
+
+			conn.Write([]byte("Joined room " + roomName + "\n"))
+			fmt.Printf("Client %s has joined room %s\n", client.username, roomName)
+			newRoom.Broadcast(conn, fmt.Sprintf("📢 %s has joined the room.\n", client.username))
+		} else if len(parts) == 2 && parts[0] == "MSG" {
+			// Command untuk mengirim pesan ke room
+			if client.room != nil {
+				client.room.Broadcast(conn, fmt.Sprintf("%s: %s\n", client.username, parts[1]))
+			} else {
+				conn.Write([]byte("You are not in a room. Join a room first using the command: JOIN:<room_name>\n"))
+			}
+		} else if len(parts) == 1 && parts[0] == "LEAVE" {
+			// Command untuk meninggalkan room
+			if client.room != nil {
+				client.room.Broadcast(conn, fmt.Sprintf("📢 %s has left the room.\n", client.username))
+				client.room.RemoveClient(client.conn)
+				client.room = nil
+				conn.Write([]byte("You have left the room.\n"))
+			} else {
+				conn.Write([]byte("You are not in any room to leave.\n"))
+			}
+		} else if len(parts) == 1 && parts[0] == "EXIT" {
+			// Command untuk keluar dari server
+			mtx.Lock()
+			delete(clients, conn)
+			mtx.Unlock()
+
+			if client.room != nil {
+				client.room.Broadcast(client.conn, fmt.Sprintf("📢 %s has left the room.\n", client.username))
+				client.room.RemoveClient(client.conn)
+			}
+
+			conn.Write([]byte("Goodbye!\n"))
+			fmt.Printf("Client %s disconnected.\n", client.username)
+			return
 		}
 	}
 }
