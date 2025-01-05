@@ -17,20 +17,42 @@ func main() {
 	}
 	defer conn.Close()
 
-	// Meminta username dari pengguna
-	fmt.Print("Enter your username: ")
 	reader := bufio.NewReader(os.Stdin)
-	username, err := reader.ReadString('\n')
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error reading username: %v\n", err)
-		return
+
+	var username string
+
+	// Meminta username dari pengguna
+	for {
+		fmt.Print("Enter your username: ")
+		username, err = reader.ReadString('\n')
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error reading username: %v\n", err)
+			return
+		}
+		username = strings.TrimSpace(username)
+
+		// Mengirim username ke server
+		_, err = conn.Write([]byte("USERNAME:" + username + "\n"))
+		if err != nil {
+			fmt.Fprint(os.Stderr, "Error sending username: %v\n", err)
+			return
+		}
+
+		// Lihat respons server
+		serverResponse, err := bufio.NewReader(conn).ReadString('\n')
+		if err != nil {
+			fmt.Fprint(os.Stderr, "Error reading server response: %v\n", err)
+			return
+		}
+		serverResponse = strings.TrimSpace(serverResponse)
+
+		if serverResponse == "OK" {
+			fmt.Printf("Connected to server as %s.\n", username)
+			break
+		} else {
+			fmt.Println(serverResponse)
+		}
 	}
-	username = strings.TrimSpace(username)
-
-	// Mengirim username ke server
-	conn.Write([]byte("USERNAME:" + username + "\n"))
-
-	fmt.Printf("Connected to server as %s.\n", username)
 
 	// Goroutine untuk mendengarkan pesan dari server
 	go func() {

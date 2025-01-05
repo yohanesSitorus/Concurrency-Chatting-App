@@ -40,30 +40,54 @@ func main() {
 
 func handleClient(conn net.Conn) {
 	defer conn.Close()
-
 	client := &Client{
 		conn: conn,
 	}
 
 	reader := bufio.NewReader(conn)
 
-	// Membaca username terlebih dahulu
-	message, err := reader.ReadString('\n')
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Failed to read username: %v\n", err)
-		return
-	}
+	// Loop sampai username yang dimasukkan client unik
+	for {
+		// Membaca username terlebih dahulu
+		message, err := reader.ReadString('\n')
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Failed to read username: %v\n", err)
+			return
+		}
 
-	parts := strings.SplitN(strings.TrimSpace(message), ":", 2)
-	if len(parts) == 2 && parts[0] == "USERNAME" {
-		client.username = parts[1]
+		parts := strings.SplitN(strings.TrimSpace(message), ":", 2)
+		if len(parts) == 2 && parts[0] == "USERNAME" {
+			//Cek apakah sudah ada client yang memiliki username tersebut
+			username := parts[1]
 
-		mtx.Lock()
-		clients[conn] = client
-		mtx.Unlock()
+			mtx.Lock()
 
-		fmt.Printf("Client %s connected as %s\n", conn.RemoteAddr(), client.username)
-		broadcastMessage(conn, fmt.Sprintf("📢 %s has joined the chat!\n", client.username))
+			isTaken := false
+			for _, exClient := range clients {
+				if exClient.username == username {
+					isTaken = true
+					break
+				}
+			}
+
+			mtx.Unlock()
+
+			if isTaken {
+				conn.Write([]byte("Username " + username + " already taken. Please try again.\n"))
+			} else {
+				//Jika username sudah unik
+				client.username = parts[1]
+
+				mtx.Lock()
+				clients[conn] = client
+				mtx.Unlock()
+
+				conn.Write([]byte("OK\n"))
+				fmt.Printf("Client %s connected as %s\n", conn.RemoteAddr(), client.username)
+				broadcastMessage(conn, fmt.Sprintf("📢 %s has joined the chat!\n", client.username))
+				break
+			}
+		}
 	}
 
 	for {
