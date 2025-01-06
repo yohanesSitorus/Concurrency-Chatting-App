@@ -6,7 +6,7 @@ import (
 )
 
 type Room struct {
-	name    string
+	Name    string
 	clients map[net.Conn]bool
 	mtx     sync.Mutex
 }
@@ -26,7 +26,7 @@ func GetOrCreateRoom(name string) *Room {
 	}
 
 	newRoom := &Room{
-		name:    name,
+		Name:    name,
 		clients: make(map[net.Conn]bool),
 	}
 	rooms[name] = newRoom
@@ -51,7 +51,7 @@ func (r *Room) RemoveClient(conn net.Conn) {
 	// Kalau room kosong, delete room tersebut
 	if len(r.clients) == 0 {
 		roomsMtx.Lock()
-		delete(rooms, r.name)
+		delete(rooms, r.Name)
 		roomsMtx.Unlock()
 	}
 }

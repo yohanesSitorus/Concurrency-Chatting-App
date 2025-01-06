@@ -123,7 +123,10 @@ func handleClient(conn net.Conn) {
 			newRoom.Broadcast(conn, fmt.Sprintf("📢 %s has joined the room.\n", client.username))
 		} else if len(parts) == 2 && parts[0] == "MSG" {
 			// Command untuk mengirim pesan ke room
+			messageContent := parts[1]
+
 			if client.room != nil {
+				fmt.Printf("Client <%s> from Room <%s> sends: \"%s\"\n", client.username, client.room.Name, messageContent)
 				client.room.Broadcast(conn, fmt.Sprintf("%s: %s\n", client.username, parts[1]))
 			} else {
 				conn.Write([]byte("You are not in a room. Join a room first using the command: JOIN:<room_name>\n"))
